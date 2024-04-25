@@ -15,8 +15,6 @@ GOAL, AGE, WEIGHT, HEIGHT, HANDLE_INPUT, PHOTO, PLAN = range(7)
 PROMPT = range(1)
 
 Base = declarative_base()
-
-
 class FitnessGoal(Base):
     __tablename__ = 'fitness_goals'
 
@@ -25,8 +23,8 @@ class FitnessGoal(Base):
     name = Column(String)
     age = Column(Integer)
     fitness_goal = Column(String)
-    weight = Column(Integer)
-    height = Column(Integer)
+    '''weight = Column(Integer)
+    height = Column(Integer)'''
 
 
 engine = create_engine('sqlite:///bot.db')
@@ -37,14 +35,15 @@ Session = sessionmaker(bind=engine)
 session = Session()
 
 
+
 async def start(update, context):
     context.user_data.clear()
 
     keyboard = [["Установить свою фитнес-цель"],
                 ["Посмотреть информацию о себе"],
                 ["Личный фитнес-тренер"]]
-
-    await update.message.reply_text(
+    
+    await update.message.reply_text( 
         text='''Привет! Я здесь, чтобы помочь тебе с тренировками и здоровым образом жизни.\n\nДля того чтобы начать, выбери опцию на клавиатуре:''',
         reply_markup=ReplyKeyboardMarkup(
             keyboard, one_time_keyboard=True, resize_keyboard=True))
@@ -52,16 +51,16 @@ async def start(update, context):
 
 async def set_goal(update, context):
     user = update.message.from_user
-    keyboard = [['Набор мышечной массы'],
+    keyboard = [['Набор мышечной массы'], 
                 ['Похудение'],
                 ['Активное кардио']]
-
+    
     await update.message.reply_text(
         "Выберите вашу цель на клавиатуре, \n\n"
         "В любой момент вы можете отправить команду /cancel, чтобы прервать создание плана",
         reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     )
-    logging.info("User %s set goal:", user.first_name, )
+    logging.info("User %s set goal:", user.first_name,)
 
     return GOAL
 
@@ -95,6 +94,7 @@ async def age(update, context):
     session.commit()
 
     await context.bot.send_message(chat_id=update.message.chat_id, text="Какой у вас вес?")
+
     return WEIGHT
 
 
@@ -102,13 +102,8 @@ async def weight(update, context):
     user_data = context.user_data
     user_data['weight'] = update.message.text
 
-    chat_id = update.message.chat_id
-    user = session.query(FitnessGoal).filter_by(chat_id=chat_id).first()
-    if user:
-        user.age = user_data['weight']
-    session.commit()
-
     await context.bot.send_message(chat_id=update.message.chat_id, text="Какой у вас рост?")
+
     return HEIGHT
 
 
@@ -116,19 +111,13 @@ async def height(update, context):
     user_data = context.user_data
     user_data['height'] = update.message.text
 
-    chat_id = update.message.chat_id
-    user = session.query(FitnessGoal).filter_by(chat_id=chat_id).first()
-    if user:
-        user.age = user_data['height']
-    session.commit()
-
     keyboard = [['Пропустить']]
 
     await update.message.reply_text(
         "Теперь, пожалуйста, отправьте ваше фото.\n\n"
         "Или воспользуйтесь кнопкой ниже, если не хотите отправлять фото.",
         reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-    )
+    )    
 
     return PHOTO
 
@@ -210,11 +199,16 @@ async def skip(update, context):
     - Уделите время сна и отдыху, чтобы восстановиться после тяжелого дня на работе и тренировок
     ''')
 
-        # Завершаем диалог
+            # Завершаем диалог
     return ConversationHandler.END
 
 
 async def plan(update, context):
+    keyboard = [["Установить свою фитнес-цель"],
+                ["Посмотреть информацию о себе"],
+                ["Личный фитнес-тренер"]]
+
+
     user_data = context.user_data
     user_data['photo'] = update.message.text
     if update.message.photo:
@@ -246,7 +240,10 @@ async def plan(update, context):
     - Достаточный отдых
 
     Прогрессия:
-    - Увеличивайте нагрузку постепенно''')
+    - Увеличивайте нагрузку постепенно''', 
+    reply_markup=ReplyKeyboardMarkup(
+            keyboard, one_time_keyboard=True, resize_keyboard=True))
+
         elif user_data.get('goal') == 'Похудение':
             await update.message.reply_text('''Разминка (5-10 минут):
     - Кардио
@@ -267,7 +264,9 @@ async def plan(update, context):
 
     Прогрессия:
     - Увеличивайте интенсивность тренировок по мере улучшения физической формы
-    ''')
+    ''', reply_markup=ReplyKeyboardMarkup(
+            keyboard, one_time_keyboard=True, resize_keyboard=True))
+
         elif user_data.get('goal') == 'Отдых':
             await update.message.reply_text('''Разминка (5-10 минут):
     - Прогулка на свежем воздухе
@@ -287,13 +286,16 @@ async def plan(update, context):
     - Питайтесь сбалансированно, уделяя внимание потреблению достаточного количества белка, углеводов и здоровых жиров
     - Пейте достаточное количество воды
     - Уделите время сна и отдыху, чтобы восстановиться после тяжелого дня на работе и тренировок
-    ''')
+    ''', reply_markup=ReplyKeyboardMarkup(
+            keyboard, one_time_keyboard=True, resize_keyboard=True))
 
             # Завершаем диалог
             return ConversationHandler.END
     else:
         await update.message.reply_text('Это не фото:) Пожалуйста, отправьте фотографию.')
         return PHOTO
+    
+
 
 
 async def cancel(update, context):
@@ -307,11 +309,11 @@ async def cancel(update, context):
 
 
 async def my_info(update, context):
+
     chat_id = update.message.chat_id
     user = session.query(FitnessGoal).filter_by(chat_id=chat_id).first()
-    if user and user.fitness_goal and user.age and user.weight and user.height:
-        progress_text = f"""Ваша текущая фитнес-цель: {user.fitness_goal}\nВаш возраст: {user.age}\n
-                            Ваш вес: {user.weight}\nВаш рост: {user.height}"""
+    if user and user.fitness_goal and user.age:
+        progress_text = f"""Ваша текущая фитнес-цель: {user.fitness_goal}\nВаш возраст: {user.age}"""
 
     else:
         progress_text = "Вы еще не установили фитнес-цель. Используйте команду /setgoal, чтобы установить ее."
@@ -319,9 +321,8 @@ async def my_info(update, context):
 
 
 async def coach(update, context):
-    await context.bot.send_message(chat_id=update.message.chat_id,
-                                   text="Привет! Я твой личный тренер на базе YaGPT. Задавай любые вопросы, я с радостью на них отвечу.")
-
+    await context.bot.send_message(chat_id=update.message.chat_id, text="Привет! Я твой личный тренер на базе YaGPT. Задавай любые вопросы, я с радостью на них отвечу.")
+     
     return PROMPT
 
 
@@ -330,10 +331,8 @@ async def prompt(update, context):
     user_data['prompt'] = update.message.text
     pr = str(user_data['prompt'])
 
-    account = YandexGPTLite('b1gcod22tep1ctheen35', 'y0_AgAAAABX7bGzAATuwQAAAAECNlxxAAAInfGZcfpMF7HAIBwzQ3GZUrvVxA')
-    text = account.create_completion(f'{pr}', temperature=0.6,
-                                     system_prompt='Представь, что ты личный фитнес-тренер и ответь на вопросы',
-                                     max_tokens=100)
+    account = YandexGPTLite('b1gcod22tep1ctheen35', 'y0_AgAAAABX7bGzAATuwQAAAAECNlxxAAAInfGZcfpMF7HAIBwzQ3GZUrvVxA' )
+    text = account.create_completion(f'{pr}', temperature=0.6, system_prompt = 'Представь, что ты личный фитнес-тренер и ответь на вопросы', max_tokens=100)
 
     await update.message.reply_text(text)
 
@@ -353,15 +352,18 @@ def main():
             PHOTO: [MessageHandler(filters.PHOTO & ~filters.COMMAND, plan),
                     MessageHandler(filters.Text('Пропустить'), skip)],
         },
-        fallbacks=[CommandHandler("cancel", cancel)]
+        fallbacks=[CommandHandler("cancel", cancel)] 
     )
     application.add_handler(conv_handler_goal)
 
     application.add_handler(
         MessageHandler(filters.Text('Посмотреть информацию о себе'), my_info))
+    application.add_handler(CommandHandler('my_info', my_info))
+    
 
     conv_handler_coach = ConversationHandler(
-        entry_points=[MessageHandler(filters.Text('Личный фитнес-тренер'), coach)],
+        entry_points=[MessageHandler(filters.Text('Личный фитнес-тренер'), coach), 
+                      CommandHandler('coach', coach)],
         states={
             PROMPT: [MessageHandler(filters.TEXT, prompt)],
         },
