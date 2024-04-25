@@ -1,13 +1,22 @@
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ConversationHandler
+from telegram.ext import CommandHandler, MessageHandler, filters, ConversationHandler
+from telegram.ext import ApplicationBuilder
 from sqlalchemy import create_engine, Column, Integer, String
 from sqlalchemy.orm import sessionmaker, declarative_base
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove
 import asyncio
+from yandexgptlite import YandexGPTLite
+import logging
+
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+GOAL, AGE, WEIGHT, HEIGHT, HANDLE_INPUT, PHOTO, PLAN = range(7)
+PROMPT = range(1)
 
 Base = declarative_base()
 
 
-# Определение модели данных пользователя
 class FitnessGoal(Base):
     __tablename__ = 'fitness_goals'
 
@@ -16,69 +25,48 @@ class FitnessGoal(Base):
     name = Column(String)
     age = Column(Integer)
     fitness_goal = Column(String)
+    weight = Column(Integer)
+    height = Column(Integer)
 
 
-# Создание соединения с базой данных
 engine = create_engine('sqlite:///bot.db')
 
-# Создание таблиц в базе данных
 Base.metadata.create_all(engine)
 
-# Создание сессии
 Session = sessionmaker(bind=engine)
 session = Session()
 
 
-# Функция обработки команды /start
 async def start(update, context):
-    chat_id = update.message.chat_id
-    welcome_message = """
-    Привет! Я здесь, чтобы помочь тебе с тренировками и здоровым образом жизни. 
-
-    Для того чтобы начать, воспользуйся следующими командами:
-    /start - начать общение с ботом
-    /help - показать список доступных команд
-    /setgoal - установить свою фитнес-цель
-    /myprogress - просмотреть свой прогресс
-
-    Помни, что забота о здоровье – это важно! Не забывай слушать свое тело и консультироваться с врачом перед началом 
-    новой программы тренировок.
-    """
-    # Очищаем данные пользователя при запуске диалога
     context.user_data.clear()
-    await context.bot.send_message(chat_id=chat_id, text=welcome_message)
-    return ConversationHandler.END
 
+    keyboard = [["Установить свою фитнес-цель"],
+                ["Посмотреть информацию о себе"],
+                ["Личный фитнес-тренер"]]
 
-# Функции обработки остальных команд и сообщений
-async def help_command(update, context):
-    chat_id = update.message.chat_id
-    help_text = """
-    Список доступных команд:
-    /start - начать общение с ботом
-    /help - показать список доступных команд
-    /setgoal - установить свою фитнес-цель
-    /myprogress - просмотреть свой прогресс
-    """
-    await context.bot.send_message(chat_id=chat_id, text=help_text)
-
-
-# Определение состояний
-GOAL, AGE, WEIGHT, HEIGHT, HANDLE_INPUT, PHOTO, PLAN = range(7)
-
-
-# Функция для обработки команды /setgoal
-async def set_goal(update, context):
-    reply_keyboard = [['Набор мышечной массы', 'Похудение', 'Отдых']]
     await update.message.reply_text(
-        "Выберите вашу цель:",
-        reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
+        text='''Привет! Я здесь, чтобы помочь тебе с тренировками и здоровым образом жизни.\n\nДля того чтобы начать, выбери опцию на клавиатуре:''',
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard, one_time_keyboard=True, resize_keyboard=True))
+
+
+async def set_goal(update, context):
+    user = update.message.from_user
+    keyboard = [['Набор мышечной массы'],
+                ['Похудение'],
+                ['Активное кардио']]
+
+    await update.message.reply_text(
+        "Выберите вашу цель на клавиатуре, \n\n"
+        "В любой момент вы можете отправить команду /cancel, чтобы прервать создание плана",
+        reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     )
+    logging.info("User %s set goal:", user.first_name, )
+
     return GOAL
 
 
-# Функция для обработки выбора варианта
-async def process_goal_choice(update, context):
+async def enter_goal(update, context):
     user_data = context.user_data
     user_data['goal'] = update.message.text
 
@@ -92,220 +80,295 @@ async def process_goal_choice(update, context):
         session.add(new_user)
     session.commit()
 
-    await update.message.reply_text(f"Ваша цель: {user_data['goal']}")
-    await context.bot.send_message(chat_id=update.message.chat_id, text="Сколько вам лет?")
+    await update.message.reply_text("Сколько вам лет?")
     return AGE
 
 
-# Функция для получения возраста
-async def get_age(update, context):
+async def age(update, context):
     user_data = context.user_data
     user_data['age'] = update.message.text
-    await context.bot.send_message(chat_id=update.message.chat_id, text="Какой ваш вес?")
-    return WEIGHT
 
-
-# Функция для получения веса
-async def get_weight(update, context):
-    user_data = context.user_data
-    user_data['weight'] = update.message.text
-    await context.bot.send_message(chat_id=update.message.chat_id, text="Какой ваш рост?")
-    return HEIGHT
-
-
-# Функция для получения роста
-async def get_height(update, context):
-    user_data = context.user_data
-    user_data['height'] = update.message.text
-    await context.bot.send_message(chat_id=update.message.chat_id, text="Теперь, пожалуйста, присылайте ваше фото.")
-    return PHOTO
-
-
-# Функция для обработки ответов пользователя
-async def handle_input(update, context):
-    user_data = context.user_data
-    await context.bot.send_message(chat_id=update.message.chat_id, text="Вы установили следующие данные:")
-    await context.bot.send_message(chat_id=update.message.chat_id, text=f"Цель: {user_data['goal']}")
-    await context.bot.send_message(chat_id=update.message.chat_id, text=f"Возраст: {user_data['age']}")
-    await context.bot.send_message(chat_id=update.message.chat_id, text=f"Вес: {user_data['weight']}")
-    await context.bot.send_message(chat_id=update.message.chat_id, text=f"Рост: {user_data['height']}")
-
-    # Сохраняем возраст пользователя в базе данных
     chat_id = update.message.chat_id
     user = session.query(FitnessGoal).filter_by(chat_id=chat_id).first()
     if user:
         user.age = user_data['age']
-        session.commit()
+    session.commit()
 
-    # Сбросить состояние пользователя
-    return ConversationHandler.END
+    await context.bot.send_message(chat_id=update.message.chat_id, text="Какой у вас вес?")
+    return WEIGHT
 
 
-# Функция для запроса фото
-async def request_photo(update, context):
+async def weight(update, context):
+    user_data = context.user_data
+    user_data['weight'] = update.message.text
+
+    chat_id = update.message.chat_id
+    user = session.query(FitnessGoal).filter_by(chat_id=chat_id).first()
+    if user:
+        user.age = user_data['weight']
+    session.commit()
+
+    await context.bot.send_message(chat_id=update.message.chat_id, text="Какой у вас рост?")
+    return HEIGHT
+
+
+async def height(update, context):
+    user_data = context.user_data
+    user_data['height'] = update.message.text
+
+    chat_id = update.message.chat_id
+    user = session.query(FitnessGoal).filter_by(chat_id=chat_id).first()
+    if user:
+        user.age = user_data['height']
+    session.commit()
+
+    keyboard = [['Пропустить']]
+
     await update.message.reply_text(
-        'Пожалуйста, отправьте ваше фото.',
-        reply_markup=ReplyKeyboardRemove()
+        "Теперь, пожалуйста, отправьте ваше фото.\n\n"
+        "Или воспользуйтесь кнопкой ниже, если не хотите отправлять фото.",
+        reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     )
+
     return PHOTO
 
 
-# Функция для проверки фото
-# Функция для проверки фото и отправки соответствующего сообщения
-async def check_photo(update, context):
+async def skip(update, context):
     user_data = context.user_data
-    if update.message.photo:
-        # Обработка полученного фото
-        await update.message.reply_text('Спасибо за фото!')
-        # Отправляем сообщение о том, что план составляется
-        await update.message.reply_text('Сейчас составим для вас план.')
-        # Имитация задержки в обработке
-        await asyncio.sleep(2)  # Задержка в 2 секунды
-        # Отправляем сообщение о готовности плана
-        await update.message.reply_text('Ваш план готов!')
+    user_data['photo'] = update.message.text
+    await update.message.reply_text(
+        'Жаль, но я уверен, что вы очень красивый',
+        reply_markup=ReplyKeyboardRemove()
+    )
+    asyncio.sleep(1)
+    await update.message.reply_text('Сейчас составим для вас план.')
+    asyncio.sleep(2.5)
+    await update.message.reply_text('Ваш план готов!')
 
-        # Отправляем сообщение в зависимости от выбора пользователя
-        if user_data.get('goal') == 'Набор мышечной массы':
-            await update.message.reply_text('''Ваш фитнес-план:Разминка (5-10 минут): 
-- Кардио
-- Растяжка
+    if user_data.get('goal') == 'Набор мышечной массы':
+        await update.message.reply_text('''Ваш фитнес-план:
+    Разминка (5-10 минут): 
+    - Кардио
+    - Растяжка
 
-Основные упражнения:
-- Грудь: Жим штанги на скамье, Жим гантелей, Разведение гантелей
-- Спина: Тяга штанги в наклоне, Подтягивания, Гиперэкстензии
-- Ноги: Приседания со штангой, Жим ногами в тренажере, Румынская тяга
-- Плечи: Армейский жим, Махи гантелей, Подъемы штанги перед собой
-- Руки: Сгибание рук со штангой, Французский жим, Молотковые подъемы гантелей
+    Основные упражнения:
+    - Грудь: Жим штанги на скамье, Жим гантелей, Разведение гантелей
+    - Спина: Тяга штанги в наклоне, Подтягивания, Гиперэкстензии
+    - Ноги: Приседания со штангой, Жим ногами в тренажере, Румынская тяга
+    - Плечи: Армейский жим, Махи гантелей, Подъемы штанги перед собой
+    - Руки: Сгибание рук со штангой, Французский жим, Молотковые подъемы гантелей
 
-Кардио (по желанию):
-- 10-20 минут бега или быстрой ходьбы
+    Кардио (по желанию):
+    - 10-20 минут бега или быстрой ходьбы
 
-Питание и восстановление:
-- Богатая белком, углеводами и здоровыми жирами диета
-- Много воды
-- Достаточный отдых
+    Питание и восстановление:
+    - Богатая белком, углеводами и здоровыми жирами диета
+    - Много воды
+    - Достаточный отдых
 
-Прогрессия:
-- Увеличивайте нагрузку постепенно''')
-        elif user_data.get('goal') == 'Похудение':
-            await update.message.reply_text('''Разминка (5-10 минут):
-- Кардио
-- Растяжка
+    Прогрессия:
+    - Увеличивайте нагрузку постепенно''')
+    elif user_data.get('goal') == 'Похудение':
+        await update.message.reply_text('''Разминка (5-10 минут):
+    - Кардио
+    - Растяжка
 
-Основные упражнения:
-- Кардио: Бег на беговой дорожке, Эллиптический тренажер, Велосипед
-- Силовые упражнения: Приседания, Жим ногами в тренажере, Тяга гантелей в наклоне, Подтягивания, Сгибание рук со штангой
+    Основные упражнения:
+    - Кардио: Бег на беговой дорожке, Эллиптический тренажер, Велосипед
+    - Силовые упражнения: Приседания, Жим ногами в тренажере, Тяга гантелей в наклоне, Подтягивания, Сгибание рук со штангой
 
-Кардио (по желанию):
-- 20-30 минут высокоинтенсивного кардио (например, HIIT)
+    Кардио (по желанию):
+    - 20-30 минут высокоинтенсивного кардио (например, HIIT)
 
-Питание и восстановление:
-- Контролируйте калорийный баланс: потребляйте меньше калорий, чем вы тратите
-- Увеличьте потребление белка и ограничьте потребление углеводов и жиров
-- Пейте много воды
-- Обеспечьте своему организму достаточный отдых для восстановления и регуляции аппетита
+    Питание и восстановление:
+    - Контролируйте калорийный баланс: потребляйте меньше калорий, чем вы тратите
+    - Увеличьте потребление белка и ограничьте потребление углеводов и жиров
+    - Пейте много воды
+    - Обеспечьте своему организму достаточный отдых для восстановления и регуляции аппетита
 
-Прогрессия:
-- Увеличивайте интенсивность тренировок по мере улучшения физической формы
-''')
-        elif user_data.get('goal') == 'Отдых':
-            await update.message.reply_text('''Разминка (5-10 минут):
-- Прогулка на свежем воздухе
-- Легкая растяжка
+    Прогрессия:
+    - Увеличивайте интенсивность тренировок по мере улучшения физической формы
+    ''')
+    elif user_data.get('goal') == 'Отдых':
+        await update.message.reply_text('''Разминка (5-10 минут):
+    - Прогулка на свежем воздухе
+    - Легкая растяжка
 
-Основные упражнения (выберите упражнения, которые приносят удовольствие):
-- Бег: 20-30 минут по парку или по берегу реки
-- Йога: 30-45 минут для укрепления мышц и улучшения гибкости
-- Плавание: 20-30 минут в бассейне для расслабления и укрепления всего тела
-- Велосипед: 30-45 минут прогулки по окрестностям или велосипедная тренировка
+    Основные упражнения (выберите упражнения, которые приносят удовольствие):
+    - Бег: 20-30 минут по парку или по берегу реки
+    - Йога: 30-45 минут для укрепления мышц и улучшения гибкости
+    - Плавание: 20-30 минут в бассейне для расслабления и укрепления всего тела
+    - Велосипед: 30-45 минут прогулки по окрестностям или велосипедная тренировка
 
-Расслабление:
-- После тренировки проведите время в сауне или горячей ванне для расслабления мышц и умственного отдыха
-- Практика медитации или дыхательных упражнений для уменьшения стресса и улучшения общего самочувствия
+    Расслабление:
+    - После тренировки проведите время в сауне или горячей ванне для расслабления мышц и умственного отдыха
+    - Практика медитации или дыхательных упражнений для уменьшения стресса и улучшения общего самочувствия
 
-Питание и восстановление:
-- Питайтесь сбалансированно, уделяя внимание потреблению достаточного количества белка, углеводов и здоровых жиров
-- Пейте достаточное количество воды
-- Уделите время сна и отдыху, чтобы восстановиться после тяжелого дня на работе и тренировок
-''')
+    Питание и восстановление:
+    - Питайтесь сбалансированно, уделяя внимание потреблению достаточного количества белка, углеводов и здоровых жиров
+    - Пейте достаточное количество воды
+    - Уделите время сна и отдыху, чтобы восстановиться после тяжелого дня на работе и тренировок
+    ''')
 
         # Завершаем диалог
-        return ConversationHandler.END
+    return ConversationHandler.END
+
+
+async def plan(update, context):
+    user_data = context.user_data
+    user_data['photo'] = update.message.text
+    if update.message.photo:
+        await update.message.reply_text('Спасибо за фото!')
+        asyncio.sleep(1)
+        await update.message.reply_text('Сейчас составим для вас план.')
+        asyncio.sleep(2.5)
+        await update.message.reply_text('Ваш план готов!')
+
+        if user_data.get('goal') == 'Набор мышечной массы':
+            await update.message.reply_text('''Ваш фитнес-план:
+    Разминка (5-10 минут): 
+    - Кардио
+    - Растяжка
+
+    Основные упражнения:
+    - Грудь: Жим штанги на скамье, Жим гантелей, Разведение гантелей
+    - Спина: Тяга штанги в наклоне, Подтягивания, Гиперэкстензии
+    - Ноги: Приседания со штангой, Жим ногами в тренажере, Румынская тяга
+    - Плечи: Армейский жим, Махи гантелей, Подъемы штанги перед собой
+    - Руки: Сгибание рук со штангой, Французский жим, Молотковые подъемы гантелей
+
+    Кардио (по желанию):
+    - 10-20 минут бега или быстрой ходьбы
+
+    Питание и восстановление:
+    - Богатая белком, углеводами и здоровыми жирами диета
+    - Много воды
+    - Достаточный отдых
+
+    Прогрессия:
+    - Увеличивайте нагрузку постепенно''')
+        elif user_data.get('goal') == 'Похудение':
+            await update.message.reply_text('''Разминка (5-10 минут):
+    - Кардио
+    - Растяжка
+
+    Основные упражнения:
+    - Кардио: Бег на беговой дорожке, Эллиптический тренажер, Велосипед
+    - Силовые упражнения: Приседания, Жим ногами в тренажере, Тяга гантелей в наклоне, Подтягивания, Сгибание рук со штангой
+
+    Кардио (по желанию):
+    - 20-30 минут высокоинтенсивного кардио (например, HIIT)
+
+    Питание и восстановление:
+    - Контролируйте калорийный баланс: потребляйте меньше калорий, чем вы тратите
+    - Увеличьте потребление белка и ограничьте потребление углеводов и жиров
+    - Пейте много воды
+    - Обеспечьте своему организму достаточный отдых для восстановления и регуляции аппетита
+
+    Прогрессия:
+    - Увеличивайте интенсивность тренировок по мере улучшения физической формы
+    ''')
+        elif user_data.get('goal') == 'Отдых':
+            await update.message.reply_text('''Разминка (5-10 минут):
+    - Прогулка на свежем воздухе
+    - Легкая растяжка
+
+    Основные упражнения (выберите упражнения, которые приносят удовольствие):
+    - Бег: 20-30 минут по парку или по берегу реки
+    - Йога: 30-45 минут для укрепления мышц и улучшения гибкости
+    - Плавание: 20-30 минут в бассейне для расслабления и укрепления всего тела
+    - Велосипед: 30-45 минут прогулки по окрестностям или велосипедная тренировка
+
+    Расслабление:
+    - После тренировки проведите время в сауне или горячей ванне для расслабления мышц и умственного отдыха
+    - Практика медитации или дыхательных упражнений для уменьшения стресса и улучшения общего самочувствия
+
+    Питание и восстановление:
+    - Питайтесь сбалансированно, уделяя внимание потреблению достаточного количества белка, углеводов и здоровых жиров
+    - Пейте достаточное количество воды
+    - Уделите время сна и отдыху, чтобы восстановиться после тяжелого дня на работе и тренировок
+    ''')
+
+            # Завершаем диалог
+            return ConversationHandler.END
     else:
         await update.message.reply_text('Это не фото:) Пожалуйста, отправьте фотографию.')
         return PHOTO
 
 
-# Сообщение, что план готов
-async def plan(update, context):
-    await update.message.reply_text('Ваш план готов!')
+async def cancel(update, context):
+    user = update.message.from_user
+    logging.info("User %s canceled the conversation.", user.first_name)
+    await update.message.reply_text(
+        "Пока! Надеюсь когда-нибудь ты вернешься(", reply_markup=ReplyKeyboardRemove()
+    )
+
     return ConversationHandler.END
 
 
-# Функция с отображением процесса
-async def my_progress(update, context):
+async def my_info(update, context):
     chat_id = update.message.chat_id
     user = session.query(FitnessGoal).filter_by(chat_id=chat_id).first()
-    if user and user.fitness_goal:
-        progress_text = f"Ваша текущая фитнес-цель: {user.fitness_goal}"
+    if user and user.fitness_goal and user.age and user.weight and user.height:
+        progress_text = f"""Ваша текущая фитнес-цель: {user.fitness_goal}\nВаш возраст: {user.age}\n
+                            Ваш вес: {user.weight}\nВаш рост: {user.height}"""
+
     else:
         progress_text = "Вы еще не установили фитнес-цель. Используйте команду /setgoal, чтобы установить ее."
     await context.bot.send_message(chat_id=chat_id, text=progress_text)
 
 
-async def echo(update, context):
-    chat_id = update.message.chat_id
-    text = update.message.text
-    await context.bot.send_message(chat_id=chat_id, text=f"Ваша цель: {text}")
+async def coach(update, context):
+    await context.bot.send_message(chat_id=update.message.chat_id,
+                                   text="Привет! Я твой личный тренер на базе YaGPT. Задавай любые вопросы, я с радостью на них отвечу.")
+
+    return PROMPT
+
+
+async def prompt(update, context):
+    user_data = context.user_data
+    user_data['prompt'] = update.message.text
+    pr = str(user_data['prompt'])
+
+    account = YandexGPTLite('b1gcod22tep1ctheen35', 'y0_AgAAAABX7bGzAATuwQAAAAECNlxxAAAInfGZcfpMF7HAIBwzQ3GZUrvVxA')
+    text = account.create_completion(f'{pr}', temperature=0.6,
+                                     system_prompt='Представь, что ты личный фитнес-тренер и ответь на вопросы',
+                                     max_tokens=100)
+
+    await update.message.reply_text(text)
 
 
 def main():
-    # Создание объекта Application с токеном вашего бота
-    application = Application.builder().token('6612558741:AAHH5pRdc-GrtbizIb8lvk1CIOlzO9XfGo0').build()
+    application = ApplicationBuilder().token('6612558741:AAHH5pRdc-GrtbizIb8lvk1CIOlzO9XfGo0').build()
 
-    # Добавление обработчиков команд
-
-    # Обработчик команды "/start"
     application.add_handler(CommandHandler("start", start))
 
-    # Обработчик команды "/help"
-    application.add_handler(CommandHandler("help", help_command))
+    conv_handler_goal = ConversationHandler(
+        entry_points=[MessageHandler(filters.Text('Установить свою фитнес-цель'), set_goal)],
+        states={
+            GOAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_goal)],
+            AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, age)],
+            WEIGHT: [MessageHandler(filters.TEXT & ~filters.COMMAND, weight)],
+            HEIGHT: [MessageHandler(filters.TEXT & ~filters.COMMAND, height)],
+            PHOTO: [MessageHandler(filters.PHOTO & ~filters.COMMAND, plan),
+                    MessageHandler(filters.Text('Пропустить'), skip)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)]
+    )
+    application.add_handler(conv_handler_goal)
 
-    # Обработчик команды "/myprogress"
-    application.add_handler(CommandHandler("myprogress", my_progress))
+    application.add_handler(
+        MessageHandler(filters.Text('Посмотреть информацию о себе'), my_info))
 
-    # Создание ConversationHandler
+    conv_handler_coach = ConversationHandler(
+        entry_points=[MessageHandler(filters.Text('Личный фитнес-тренер'), coach)],
+        states={
+            PROMPT: [MessageHandler(filters.TEXT, prompt)],
+        },
+        fallbacks=[]
+    )
+    application.add_handler(conv_handler_coach)
 
-    # Определение начального состояния для ConversationHandler
-    entry_points = [CommandHandler('setgoal', set_goal)]
-
-    # Определение состояний и соответствующих им обработчиков
-    states = {
-        GOAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_goal_choice)],
-        AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_age)],
-        WEIGHT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_weight)],
-        HEIGHT: [MessageHandler(filters.TEXT & ~filters.COMMAND, request_photo)],
-        PHOTO: [MessageHandler(filters.PHOTO, check_photo),
-                MessageHandler(filters.ALL, request_photo)],
-        # Если пользователь не отправил фото, запросить еще раз
-        PLAN: [MessageHandler(filters.ALL, plan)]  # Обработка состояния PLAN
-    }
-
-    # Определение fallbacks (выходных точек)
-    fallbacks = []
-
-    # Создание ConversationHandler
-    conv_handler = ConversationHandler(entry_points=entry_points, states=states, fallbacks=fallbacks)
-
-    # Добавление ConversationHandler в Application
-    application.add_handler(conv_handler)
-
-    # Добавление обработчика для текстовых сообщений
-
-    # Обработчик для всех текстовых сообщений
-    application.add_handler(MessageHandler(filters.TEXT, echo))
-
-    # Запуск бота
     application.run_polling()
 
 
